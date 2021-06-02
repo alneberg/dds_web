@@ -56,8 +56,7 @@
     Please try using a newer browser or the <code>dds</code> command line client.
 </div>
 <div id="upload_files_too_large" class="alert alert-danger d-none">
-    Some files are too large to be uploaded via the web interface (filesizes highlighted in red).
-    <strong>These will be skipped in the upload.</strong>
+    The total size (<code id="upload_too_large_total_size"></code>) of the files is too large to be uploaded via the web interface.
     Please use the command line tool to upload these files instead.
 </div>
 <div id="dropDiv" class="p-4 mb-3 bg-light border text-muted">
@@ -219,25 +218,21 @@ document.addEventListener('DOMContentLoaded', function(event) {
         $('#upload_file_list').html('');
         setTimeout(function(){
             // This is a hack, and it pains me to write it. Needs refactoring.
+            let total_size = 0;
             for(path in upload_files){
                 let filesize = upload_files[path].size;
-                let delstart = '';
-                let delend = '';
-                let pathclass = '';
-                let badgeclass = 'bg-light border text-muted';
-                if (filesize > upload_limit){
-                    badgeclass = 'bg-danger text-white';
-                    delstart = '<del>';
-                    delend = '</del>';
-                    pathclass = 'text-muted';
-                    $('#upload_files_too_large').removeClass('d-none');
-                }
+                total_size += filesize;
                 $('#upload_file_list').append(
                     '<div class="upload_file">'+
-                        '<code class="'+pathclass+'">'+delstart+path+delend+' </code>'+
-                        '<span class="badge '+badgeclass+' fw-light font-monospace">'+humanFileSize(filesize)+'</span>'+
+                        '<code>'+path+' </code>'+
+                        '<span class="badge bg-light border text-muted fw-light font-monospace">'+humanFileSize(filesize)+'</span>'+
                     '</div>');
             }
+            if (total_size > upload_limit){
+                $('#upload_files_too_large').removeClass('d-none');
+                $('#upload_too_large_total_size').text(humanFileSize(total_size));
+            }
+
         }, 100);
         $('#upload_file_instructions').addClass('d-none');
 
