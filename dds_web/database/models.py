@@ -95,7 +95,6 @@ class User(db.Model):
     password = db.Column(db.String(120), unique=False, nullable=False)
     role = db.Column(db.String(50), unique=False, nullable=False)
     permissions = db.Column(db.String(5), unique=False, nullable=False, default="--l--")
-
     # Foreign keys
     # One facility can have many users
     facility_id = db.Column(db.Integer, db.ForeignKey("facilities.id"))
@@ -107,11 +106,35 @@ class User(db.Model):
     projects = db.relationship(
         "Project", secondary=project_users, backref=db.backref("users", lazy="dynamic")
     )
+    identifiers = db.relationship("Identifier", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         """Called by print, creates representation of object"""
 
         return f"<User {self.public_id}>"
+
+
+class Identifier(db.Model):
+    """
+    Data model for user identifiers for login.
+
+    Elixir identifiers consists of 58 characters (40 hex + "@elixir-europe.org").
+    """
+
+    # Table setup
+    __tablename__ = "identifiers"
+    __table_args__ = {"extend_existing": True}
+
+    # Columns
+    # Foreign keys
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), primary_key=True)
+    identifier = db.Column(db.String(58), primary_key=True, unique=True, nullable=False)
+    user = db.relationship("User", back_populates="identifiers")
+
+    def __repr__(self):
+        """Called by print, creates representation of object"""
+
+        return f"<Identifier {self.identifier}>"
 
 
 class File(db.Model):
@@ -127,14 +150,15 @@ class File(db.Model):
     name = db.Column(db.String(200), unique=False, nullable=False)
     name_in_bucket = db.Column(db.String(200), unique=False, nullable=False)
     subpath = db.Column(db.String(500), unique=False, nullable=False)
-    size = db.Column(db.BigInteger, unique=False, nullable=False)
-    size_encrypted = db.Column(db.BigInteger, unique=False, nullable=False)
+    size_original = db.Column(db.BigInteger, unique=False, nullable=False)
+    size_stored = db.Column(db.BigInteger, unique=False, nullable=False)
     compressed = db.Column(db.Boolean, nullable=False)
     public_key = db.Column(db.String(64), unique=False, nullable=False)
     salt = db.Column(db.String(50), unique=False, nullable=False)
     checksum = db.Column(db.String(64), unique=False, nullable=False)
-    date_uploaded = db.Column(db.String(50), unique=False, nullable=False)
-    latest_download = db.Column(db.String(50), unique=False, nullable=True)
+    time_uploaded = db.Column(db.String(50), unique=False, nullable=False)
+    time_deleted = db.Column(db.String(50), unique=False, nullable=True)
+    time_latest_download = db.Column(db.String(50), unique=False, nullable=True)
 
     # Foreign keys
     # One project can have many files
