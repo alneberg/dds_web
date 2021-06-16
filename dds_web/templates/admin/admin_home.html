@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block body %}
 
+<div id="admin-vue-start-point">
+  <v-admin-home></v-admin-home>
+</div>
 <h1>Admin Dashboard</h1>
 <div id="response-container" class="alert alert-dismissible fade show my-4 d-none">
     <span></span>
@@ -155,7 +158,70 @@
 {% endblock body %}
 
 {% block javascript %}
+<script src="{{ url_for('static', filename='node_modules/vue/dist/vue.global.js') }}"></script>
 <script type="text/javascript">
+const vAdminHomeApp = {
+    /* Main Admin Home App */
+    data() {
+        return {
+            current_user: null,
+            error_messages: [],
+            users: [],
+            users_data_loading: true
+        }
+    },
+    methods: {
+        fetchUsers() {
+            this.users = [{'username': 'vue_test_user1', 'name': 'vuesson', 'internal_ref': 'madeup', 'public_id': 'madeup'}];
+            this.users_data_loading = false;
+
+
+            /*
+            axios
+                .get('/api/v1/all_users')
+                .then(response => {
+                    this.users = response.data.users
+                    this.users_data_loading = false
+                })
+                .catch(error => {
+                    this.error_messages.push('Unable to fetch users information')
+                    this.users_data_loading = false
+                })
+            */
+        }
+    }
+}
+
+const app = Vue.createApp(vAdminHomeApp)
+
+app.component('v-admin-home', {
+    created: function() {
+        this.$root.fetchUsers();
+    },
+    template:
+        /*html*/`
+        <template v-if="this.$root.users_data_loading">
+          <div class="spinner-grow" role="status"></div><span class="ml-3">Loading data...</span>
+        </template>
+        <template v-else>
+          <template v-if="this.$root.any_errors">
+            <template v-for="msg in this.$root.error_messages">
+              <div class="alert alert-danger" role="alert">
+                <h5 class="mt-2"><i class="far fa-exclamation-triangle mr-3"></i>{{msg}}</h5>
+              </div>
+            </template>
+          </template>
+          <div class="row mb-3">
+            <h4>Vue go-ahead!</h4>
+          </div>
+        </template>
+        `
+    }
+)
+console.log("Hello!")
+app.mount("#admin-vue-start-point")
+
+
 $(function() {
     // Create user - enable facility fields when a facility user
     $('#newuser_type_radio_group input').change(function(){
