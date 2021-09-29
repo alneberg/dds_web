@@ -18,3 +18,4 @@ Flask-HTTPAuth
 pyjwt==2.1.0
 pandas
 requests
+flask-migrate

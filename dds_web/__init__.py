@@ -14,6 +14,7 @@ import flask
 import click
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
+from flask_migrate import Migrate
 from logging.config import dictConfig
 from authlib.integrations import flask_client as auth_flask_client
 from flask_httpauth import HTTPBasicAuth, HTTPTokenAuth, MultiAuth
@@ -29,6 +30,7 @@ C_TZ = pytz.timezone("Europe/Stockholm")
 
 # Database - not yet init
 db = SQLAlchemy()
+migrate = Migrate()
 
 # Marshmallows for parsing and validating
 ma = Marshmallow()
@@ -117,6 +119,7 @@ def create_app():
 
     # Initialize database
     db.init_app(app)
+    migrate.init_app(app, db)
 
     ma.init_app(app)
 
@@ -152,7 +155,6 @@ def create_app():
 def fill_db_wrapper():
     flask.current_app.logger.info("Initializing development db")
     assert flask.current_app.config["USE_LOCAL_DB"]
-    db.create_all()
     from dds_web.development.db_init import fill_db
 
     fill_db()
