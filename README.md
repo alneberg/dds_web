@@ -82,6 +82,18 @@ Then run `docker-compose up` as normal. The images will be rebuilt from scratch 
 
 If there are still issues, try deleting the `pycache` folders and repeat the above steps.
 
+### Migrations
+If you change the models or change the database schema in another way, you would need to generate a new migration to distribute those changes to other developers and the production database.
+```
+flask db migrate -m "Explanatory message about the changes"
+```
+
+Then the migration needs to be inspected manually, since:
+> The migration script needs to be reviewed and edited, as Alembic currently does not detect every change you make to your models.
+> In particular, Alembic is currently unable to detect table name changes, column name changes, or anonymously named constraints.
+
+Rerunning docker-compose at this stage should apply your latest migration since it is instructed to run `flask db upgrade` before starting the server.
+
 ## Production
 
 When running in production, you will likely want to manually build and run the two containers.
