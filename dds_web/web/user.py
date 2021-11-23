@@ -277,3 +277,47 @@ def reset_password(token):
 
     # Go to form
     return flask.render_template("user/reset_password.html", form=form)
+
+
+@auth_blueprint.route("/confirm_deletion/<token>", methods=["GET"])
+def confirm_deletion(token):
+    """Confirm invitation."""
+    s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config.get("SECRET_KEY"))
+
+    try:
+        # Get email from token
+        email = s.loads(token, salt="email-delete", max_age=604800)
+
+        # Get row from deletion requests table
+        deletion_request_row = models.DeletionRequest.query.filter(
+            models.DeletionRequest.email == email
+        ).first()
+
+    except itsdangerous.exc.SignatureExpired as signerr:
+        db.session.delete(deletion_request_row)
+        db.session.commit()
+        raise ddserr.UserDeletionError(
+            message=f"Deletion request for {email} has expired. Please login to the DDS and request deletion anew."
+        )
+    except (itsdangerous.exc.BadSignature, itsdangerous.exc.BadTimeSignature) as badsignerr:
+        raise ddserr.UserDeletionError(
+            message=f"Confirmation link is invalid. No action has been performed."
+        )
+    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+        raise ddserr.DatabaseError(message=sqlerr)
+
+    # Check the deletion request exists
+    if not deletion_request_row:
+        if user_schemas.email_in_db(email=email):
+            raise ddserr.UserDeletionError(
+                message=f"Confirmation link is invalid. No action has been performed."
+            )
+        else:
+            raise ddserr.UserDeletionError(
+                message=f"Confirmation link is invalid. No action has been performed."
+            )
+    else:
+        pass
+        # TODO execute actual deletion procedure
+        # TODO Template
+    return flask.make_response(flask.render_template("user/userdeleted.html"))

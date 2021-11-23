@@ -283,6 +283,89 @@ class AddUser(flask_restful.Resource):
         }
 
 
+class DeleteUser(flask_restful.Resource):
+    @auth.login_required
+    def post(self):
+        """Endpoint to remove users from the system
+        Every user can self-delete the own account with an e-mail confirmation.
+        Unit users can also delete other users, but require 2FA token to do so.
+        """
+
+        args = flask.request.json
+        sender_name = auth.current_user().name
+        # get user row from email
+        existing_user = user_schemas.UserSchema().load(args)
+
+        # TODO: implement logic to select methods
+
+    @staticmethod
+    @auth.login_required
+    def delete_request_self(args):
+        """Process request for self deletion: Send out email with confirmation link"""
+
+        try:
+            # Use schema to validate and check args, and create deletion request row
+            new_deletion_request = None  # TODO user_schemas.InviteUserSchema().load(args)
+
+        except ddserr.UserDeletionError as deletion_err:
+            return {
+                "message": deletion_err.description,
+                "status": ddserr.error_codes["UserDeletionError"]["status"].value,
+            }
+
+        except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+            raise ddserr.DatabaseError(message=str(sqlerr))
+        except marshmallow.ValidationError as valerr:
+            raise ddserr.UserDeletionError(message=valerr.messages)
+
+        # Create URL safe token for invitation link
+        s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config["SECRET_KEY"])
+        token = s.dumps(new_deletion_request, salt="email-delete")
+
+        # Create link for deletion request email
+        link = flask.url_for("auth_blueprint.confirm_deletion", token=token, _external=True)
+        sender_name = auth.current_user().name
+        subject = f"Confirm deletion of your user account {sender_name} in the SciLifeLab Data Delivery System"
+
+        msg = flask_mail.Message(
+            subject,
+            sender=flask.current_app.config["MAIL_SENDER_ADDRESS"],
+            recipients=[new_deletion_request.email],
+        )
+
+        # Need to attach the image to be able to use it
+        msg.attach(
+            "scilifelab_logo.png",
+            "image/png",
+            open(
+                os.path.join(flask.current_app.static_folder, "img/scilifelab_logo.png"), "rb"
+            ).read(),
+            "inline",
+            headers=[
+                ["Content-ID", "<Logo>"],
+            ],
+        )
+
+        msg.body = flask.render_template(
+            "mail/deletion_request.txt",
+            link=link,
+            sender_name=sender_name,
+        )
+        msg.html = flask.render_template(
+            "mail/deletion_request.html",
+            link=link,
+            sender_name=sender_name,
+        )
+
+        mail.send(msg)
+
+        return {
+            "email": new_deletion_request.email,
+            "message": "Requested account deletion initiated",
+            "status": 200,
+        }
+
+
 class Token(flask_restful.Resource):
     """Generates token for the user."""
 

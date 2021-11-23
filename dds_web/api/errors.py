@@ -269,6 +269,15 @@ class InviteError(exceptions.HTTPException):
         general_logger.warning(message)
 
 
+class UserDeletionError(exceptions.HTTPException):
+    """Errors regarding deleting user accounts."""
+
+    def __init__(self, message="User deletion failed."):
+        super().__init__(message)
+
+        general_logger.warning(message)
+
+
 class NoSuchUserError(Exception):
     """There is no such user found in the database."""
 
@@ -314,6 +323,7 @@ error_codes = {
     "KeyNotFoundError": {"status": http.HTTPStatus.INTERNAL_SERVER_ERROR},
     "BucketNotFoundError": {"status": http.HTTPStatus.INTERNAL_SERVER_ERROR},
     "InviteError": {"status": http.HTTPStatus.BAD_REQUEST},
+    "UserDeletionError": {"status": http.HTTPStatus.BAD_REQUEST},
     "NoSuchUserError": {"status": http.HTTPStatus.BAD_REQUEST},
     "NoSuchFileError": {"status": http.HTTPStatus.BAD_REQUEST},
     "TooManyRequestsError": {
