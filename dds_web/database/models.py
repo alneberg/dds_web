@@ -131,6 +131,7 @@ class Unit(db.Model):
     users = db.relationship("UnitUser", back_populates="unit", passive_deletes=True)
     projects = db.relationship("Project", back_populates="responsible_unit", passive_deletes=True)
     invites = db.relationship("Invite", back_populates="unit", passive_deletes=True)
+    deletions = db.relationship("DeletionRequest", back_populates="unit", passive_deletes=True)
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -603,6 +604,30 @@ class Invite(db.Model):
         """Called by print, creates representation of object"""
 
         return f"<Invite {self.email}>"
+
+
+class DeletionRequest(db.Model):
+    """Table to collect self-deletion requests by users"""
+
+    # Table setup
+    __tablename__ = "deletions"
+    __table_args__ = {"extend_existing": True}
+
+    # Primary Key
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+
+    # Foreign keys & relationships
+    unit_id = db.Column(db.Integer, db.ForeignKey("units.id", ondelete="CASCADE"))
+    unit = db.relationship("Unit", back_populates="deletions")
+
+    # Columns
+    email = db.Column(db.String(254), unique=True, nullable=False)
+    role = db.Column(db.String(20), unique=False, nullable=False)
+
+    def __repr__(self):
+        """Called by print, creates representation of object"""
+
+        return f"<DeletionRequest {self.email}>"
 
 
 class File(db.Model):
