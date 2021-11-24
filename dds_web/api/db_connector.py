@@ -297,6 +297,10 @@ class DBConnector:
 
         return exists, deleted, name_in_bucket, error
 
+    def delete_user(username):
+        # TODO
+        pass
+
     @staticmethod
     def project_usage(project_object):
 

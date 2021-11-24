@@ -9,12 +9,14 @@ import io
 
 # Installed
 import flask
+from dds_web.api.db_connector import DBConnector
 import flask_login
 import pyqrcode
 import pyotp
 import itsdangerous
 import sqlalchemy
 import marshmallow
+import logging
 
 
 # Own Modules
@@ -281,7 +283,7 @@ def reset_password(token):
 
 @auth_blueprint.route("/confirm_deletion/<token>", methods=["GET"])
 def confirm_deletion(token):
-    """Confirm invitation."""
+    """Confirm user deletion."""
     s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config.get("SECRET_KEY"))
 
     try:
@@ -306,18 +308,26 @@ def confirm_deletion(token):
     except sqlalchemy.exc.SQLAlchemyError as sqlerr:
         raise ddserr.DatabaseError(message=sqlerr)
 
-    # Check the deletion request exists
-    if not deletion_request_row:
-        if user_schemas.email_in_db(email=email):
+    # Check if the user and the deletion request exists
+    if deletion_request_row and user_schemas.email_in_db(email=email):
+
+        username = user_schemas.email_return_user(email=email)
+
+        try:
+            DBConnector.delete_user(username)
+            # TODO Template
+            return flask.make_response(flask.render_template("user/userdeleted.html"))
+
+        except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
-                message=f"Confirmation link is invalid. No action has been performed."
+                message=f"User deletion request for {email} / {username} failed due to database error: {sqlerr}",
+                alt_message=f"Deletion request for user {username} registered with {email} failed for technical reasons. Please contact the unit for technical support!",
             )
-        else:
-            raise ddserr.UserDeletionError(
-                message=f"Confirmation link is invalid. No action has been performed."
-            )
+
     else:
-        pass
-        # TODO execute actual deletion procedure
-        # TODO Template
-    return flask.make_response(flask.render_template("user/userdeleted.html"))
+        logging.getLogger("actions").error(
+            f"A valid deletion request link for {email} has been used without being issued by the system!"
+        )
+        raise ddserr.UserDeletionError(
+            message=f"Confirmation link is invalid. No action has been performed."
+        )

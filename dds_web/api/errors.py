@@ -272,10 +272,13 @@ class InviteError(exceptions.HTTPException):
 class UserDeletionError(exceptions.HTTPException):
     """Errors regarding deleting user accounts."""
 
-    def __init__(self, message="User deletion failed."):
-        super().__init__(message)
-
+    def __init__(self, message="User deletion failed.", alt_message=None):
         general_logger.warning(message)
+
+        if alt_message:
+            super().__init__(alt_message)
+        else:
+            super().__init__(message)
 
 
 class NoSuchUserError(Exception):

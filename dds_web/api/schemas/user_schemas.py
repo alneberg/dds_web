@@ -10,6 +10,7 @@ from datetime import datetime
 # Installed
 import marshmallow
 import sqlalchemy
+from sqlalchemy.sql.functions import current_user
 
 # Own modules
 from dds_web import db
@@ -18,6 +19,22 @@ from dds_web import auth
 import dds_web.security.auth
 from dds_web.database import models
 from dds_web import utils
+
+
+def email_return_user(email):
+    """Return user name associated with e-mail."""
+
+    try:
+
+        associated_user = models.Email.query.filter(models.Email.email == email).one_or_none()
+
+        if associated_user:
+            return current_user.user_name
+        else:
+            return None
+
+    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+        raise ddserr.DatabaseError(sqlerr)
 
 
 ####################################################################################################
