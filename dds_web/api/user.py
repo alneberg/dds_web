@@ -307,12 +307,6 @@ class DeleteUser(flask_restful.Resource):
             # Use schema to validate and check args, and create deletion request row
             new_deletion_request = None  # TODO user_schemas.InviteUserSchema().load(args)
 
-        except ddserr.UserDeletionError as deletion_err:
-            return {
-                "message": deletion_err.description,
-                "status": ddserr.error_codes["UserDeletionError"]["status"].value,
-            }
-
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.DatabaseError(message=str(sqlerr))
         except marshmallow.ValidationError as valerr:

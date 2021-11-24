@@ -29,7 +29,7 @@ def email_return_user(email):
         associated_user = models.Email.query.filter(models.Email.email == email).one_or_none()
 
         if associated_user:
-            return current_user.user_name
+            return associated_user.user_name
         else:
             return None
 

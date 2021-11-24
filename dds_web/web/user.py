@@ -282,7 +282,7 @@ def reset_password(token):
 
 
 @auth_blueprint.route("/confirm_deletion/<token>", methods=["GET"])
-def confirm_deletion(token):
+def confirm_self_deletion(token):
     """Confirm user deletion."""
     s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config.get("SECRET_KEY"))
 
@@ -315,8 +315,9 @@ def confirm_deletion(token):
 
         try:
             DBConnector.delete_user(username)
-            # TODO Template
-            return flask.make_response(flask.render_template("user/userdeleted.html"))
+            return flask.make_response(
+                flask.render_template("user/userdeleted.html", username=username)
+            )
 
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
