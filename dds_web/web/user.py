@@ -314,7 +314,13 @@ def confirm_self_deletion(token):
         username = user_schemas.email_return_user(email=email)
 
         try:
+
             DBConnector.delete_user(username)
+
+            logging.getLogger("actions").info(
+                f"The user {username} ({email}) has successfully terminated its account at the DDS."
+            )
+
             return flask.make_response(
                 flask.render_template("user/userdeleted.html", username=username)
             )
@@ -326,7 +332,7 @@ def confirm_self_deletion(token):
             )
 
     else:
-        logging.getLogger("actions").error(
+        logging.getLogger("actions").warning(
             f"A valid deletion request link for {email} has been used without being issued by the system!"
         )
         raise ddserr.UserDeletionError(

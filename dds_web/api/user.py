@@ -295,7 +295,7 @@ class DeleteUser(flask_restful.Resource):
         sender_name = auth.current_user().name
         # get user row from email
         existing_user = user_schemas.UserSchema().load(args)
-
+        project = project_schemas.ProjectRequiredSchema().load(flask.request.args)
         # TODO: implement logic to select methods
 
     @staticmethod
@@ -317,7 +317,7 @@ class DeleteUser(flask_restful.Resource):
         token = s.dumps(new_deletion_request, salt="email-delete")
 
         # Create link for deletion request email
-        link = flask.url_for("auth_blueprint.confirm_deletion", token=token, _external=True)
+        link = flask.url_for("auth_blueprint.confirm_self_deletion", token=token, _external=True)
         sender_name = auth.current_user().name
         subject = f"Confirm deletion of your user account {sender_name} in the SciLifeLab Data Delivery System"
 
@@ -355,9 +355,26 @@ class DeleteUser(flask_restful.Resource):
 
         return {
             "email": new_deletion_request.email,
-            "message": "Requested account deletion initiated",
+            "message": "Requested account deletion initiated. An e-mail with a confirmation link has been sent to your address!",
             "status": 200,
         }
+
+    @auth.login_required(role=["Super Admin", "Unit Admin", "Unit Personnel"])
+    def remove_user(args):
+
+        try:
+
+            DBConnector.delete_user(username)
+
+            logging.getLogger("actions").info(
+                f"The user {username} ({email}) has successfully terminated its account at the DDS."
+            )
+
+        except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+            raise ddserr.UserDeletionError(
+                message=f"User deletion request for {email} / {username} failed due to database error: {sqlerr}",
+                alt_message=f"Deletion request for user {username} registered with {email} failed for technical reasons. Please contact the unit for technical support!",
+            )
 
 
 class Token(flask_restful.Resource):
