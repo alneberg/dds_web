@@ -21,12 +21,53 @@ from dds_web.database import models
 from dds_web import utils
 
 
-def email_return_user(email):
-    """Return user name associated with e-mail."""
+####################################################################################################
+# RETRIEVAL FUNCTIONS #######################################################  RETRIEVAL FUNCTIONS #
+####################################################################################################
+
+
+def email_return_projects(email):
+    """Return projects associated with e-mail."""
 
     try:
 
-        associated_user = models.Email.query.filter(models.Email.email == email).one_or_none()
+        associated_user = models.Email.query.filter(models.Email.email == str(email)).one_or_none()
+
+        if associated_user:
+            return models.ProjectUsers.query.filter(
+                models.ProjectUsers.user_id == associated_user.user_name
+            )
+        else:
+            return None
+
+    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+        raise ddserr.DatabaseError(sqlerr)
+
+
+def email_return_role(email):
+    """Return role associated with e-mail."""
+
+    try:
+
+        associated_user = models.Email.query.filter(models.Email.email == str(email)).one_or_none()
+
+        if associated_user:
+            return models.User.query.filter(
+                models.User.user_id == associated_user.user_name
+            ).get_role()
+        else:
+            return None
+
+    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+        raise ddserr.DatabaseError(sqlerr)
+
+
+def email_return_user(email):
+    """Return username associated with e-mail."""
+
+    try:
+
+        associated_user = models.Email.query.filter(models.Email.email == str(email)).first()
 
         if associated_user:
             return associated_user.user_name
@@ -221,3 +262,39 @@ class NewUserSchema(marshmallow.Schema):
         db.session.commit()
 
         return new_user
+
+
+class DeleteUserSchema(marshmallow.Schema):
+    """Schema for User deletion requests."""
+
+    email = marshmallow.fields.Email(required=True, allow_none=True)
+    ownaccount = marshmallow.fields.Boolean(required=True)
+
+    class Meta:
+        unknown = marshmallow.EXCLUDE
+
+    @marshmallow.validates("email")
+    def verify_email_in_system(self, value):
+        """Verify that the email tied to an existing user account."""
+
+        if value:
+            if not email_in_db(email=value):
+                raise marshmallow.ValidationError(
+                    message=f"The email '{value}' is not associated with an Data Delivery System account."
+                )
+
+    @marshmallow.post_load
+    def return_request(self, data, **kwargs):
+        """Return the extended deletion request."""
+
+        deletion_request = {
+            "username": email_return_user(data.get("name")),
+            "email": data.get("email"),
+            "role": email_return_projects(data.get("name")),
+            "role": email_return_role(data.get("name")),
+            "ownaccount": data.get("ownaccount"),
+            "requestername": auth.current_user().username,
+            "requesterrole": auth.current_user().role,
+        }
+
+        return deletion_request

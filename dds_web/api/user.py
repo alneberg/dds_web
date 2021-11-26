@@ -291,12 +291,23 @@ class DeleteUser(flask_restful.Resource):
         Unit users can also delete other users, but require 2FA token to do so.
         """
 
-        args = flask.request.json
+        # CLI request should read:
+        # {"email": email, "ownaccount": ownaccount}
+        flask.current_app.logger.debug(flask.request.json)
+        deletion_request = user_schemas.DeleteUserSchema().load(flask.request.json)
+        flask.current_app.logger.debug(user_schemas.email_return_user("unituser1@mailtrap.io"))
+        flask.current_app.logger.debug(deletion_request)
+        return
         sender_name = auth.current_user().name
         # get user row from email
         existing_user = user_schemas.UserSchema().load(args)
         project = project_schemas.ProjectRequiredSchema().load(flask.request.args)
         # TODO: implement logic to select methods
+
+        project = args.pop("project", None)
+
+        # Check if email is registered to a user
+        existing_user = user_schemas.UserSchema().load(args)
 
     @staticmethod
     @auth.login_required
@@ -359,7 +370,7 @@ class DeleteUser(flask_restful.Resource):
             "status": 200,
         }
 
-    @auth.login_required(role=["Super Admin", "Unit Admin", "Unit Personnel"])
+    @auth.login_required(role=["Super Admin", "Unit Admin"])
     def remove_user(args):
 
         try:
