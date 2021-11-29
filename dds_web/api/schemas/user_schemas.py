@@ -22,63 +22,6 @@ from dds_web import utils
 
 
 ####################################################################################################
-# RETRIEVAL FUNCTIONS #######################################################  RETRIEVAL FUNCTIONS #
-####################################################################################################
-
-
-def email_return_projects(email):
-    """Return projects associated with e-mail."""
-
-    try:
-
-        associated_user = models.Email.query.filter(models.Email.email == str(email)).one_or_none()
-
-        if associated_user:
-            return models.ProjectUsers.query.filter(
-                models.ProjectUsers.user_id == associated_user.user_name
-            )
-        else:
-            return None
-
-    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
-        raise ddserr.DatabaseError(sqlerr)
-
-
-def email_return_role(email):
-    """Return role associated with e-mail."""
-
-    try:
-
-        associated_user = models.Email.query.filter(models.Email.email == str(email)).one_or_none()
-
-        if associated_user:
-            return models.User.query.filter(
-                models.User.user_id == associated_user.user_name
-            ).get_role()
-        else:
-            return None
-
-    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
-        raise ddserr.DatabaseError(sqlerr)
-
-
-def email_return_user(email):
-    """Return username associated with e-mail."""
-
-    try:
-
-        associated_user = models.Email.query.filter(models.Email.email == str(email)).first()
-
-        if associated_user:
-            return associated_user.user_name
-        else:
-            return None
-
-    except sqlalchemy.exc.SQLAlchemyError as sqlerr:
-        raise ddserr.DatabaseError(sqlerr)
-
-
-####################################################################################################
 # SCHEMAS ################################################################################ SCHEMAS #
 ####################################################################################################
 
@@ -287,11 +230,23 @@ class DeleteUserSchema(marshmallow.Schema):
     def return_request(self, data, **kwargs):
         """Return the extended deletion request."""
 
+        if data.get("email") and not data.get("ownaccount"):
+            try:
+                # associated user is not the requester
+                associated_user = models.Email.query.filter_by(email=data.get("email")).first()
+                associated_user = associated_user.user
+            except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+                raise ddserr.DatabaseError(sqlerr)
+
+        else:
+            # associated user is identical with the requester
+            associated_user = auth.current_user()
+
         deletion_request = {
-            "username": email_return_user(data.get("name")),
+            "username": associated_user.username,
             "email": data.get("email"),
-            "role": email_return_projects(data.get("name")),
-            "role": email_return_role(data.get("name")),
+            "role": associated_user.role,
+            "projects": associated_user.projects,
             "ownaccount": data.get("ownaccount"),
             "requestername": auth.current_user().username,
             "requesterrole": auth.current_user().role,
