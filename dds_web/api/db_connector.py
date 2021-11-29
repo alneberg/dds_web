@@ -299,6 +299,7 @@ class DBConnector:
 
     def delete_user(username):
         # TODO
+        print("Hi")
         pass
 
     @staticmethod

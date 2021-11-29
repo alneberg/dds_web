@@ -244,7 +244,7 @@ class DeleteUserSchema(marshmallow.Schema):
 
         deletion_request = {
             "username": associated_user.username,
-            "email": data.get("email"),
+            "email": associated_user.email,
             "role": associated_user.role,
             "projects": associated_user.projects,
             "ownaccount": data.get("ownaccount"),
