@@ -295,15 +295,17 @@ def confirm_self_deletion(token):
             models.DeletionRequest.email == email
         ).first()
 
-    except itsdangerous.exc.SignatureExpired as signerr:
-        db.session.delete(deletion_request_row)
+    except itsdangerous.exc.SignatureExpired:
+        db.session.delete(
+            models.DeletionRequest.query.filter(models.DeletionRequest.email == email).all()
+        )
         db.session.commit()
         raise ddserr.UserDeletionError(
             message=f"Deletion request for {email} has expired. Please login to the DDS and request deletion anew."
         )
-    except (itsdangerous.exc.BadSignature, itsdangerous.exc.BadTimeSignature) as badsignerr:
+    except (itsdangerous.exc.BadSignature, itsdangerous.exc.BadTimeSignature):
         raise ddserr.UserDeletionError(
-            message=f"Confirmation link is invalid. No action has been performed."
+            message=f"Confirmation link has expired. No action has been performed."
         )
     except sqlalchemy.exc.SQLAlchemyError as sqlerr:
         raise ddserr.DatabaseError(message=sqlerr)
@@ -311,24 +313,28 @@ def confirm_self_deletion(token):
     # Check if the user and the deletion request exists
     if deletion_request_row and user_schemas.email_in_db(email=email):
 
-        username = user_schemas.email_return_user(email=email)
-
         try:
 
-            DBConnector.delete_user(username)
+            deletion_request = user_schemas.DeleteUserSchema().load(
+                {"email": email, "ownaccount": True}
+            )
+            flask.current_app.logger.debug(deletion_request)
+            DBConnector.delete_user(deletion_request)
 
             logging.getLogger("actions").info(
-                f"The user {username} ({email}) has successfully terminated its account at the DDS."
+                f"The user {deletion_request['username']} ({deletion_request['email']}) has successfully terminated its account at the DDS."
             )
 
             return flask.make_response(
-                flask.render_template("user/userdeleted.html", username=username)
+                flask.render_template(
+                    "user/userdeleted.html", username=deletion_request["username"]
+                )
             )
 
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
-                message=f"User deletion request for {email} / {username} failed due to database error: {sqlerr}",
-                alt_message=f"Deletion request for user {username} registered with {email} failed for technical reasons. Please contact the unit for technical support!",
+                message=f"User deletion request for {deletion_request['username']} / {deletion_request['email']} failed due to database error: {sqlerr}",
+                alt_message=f"Deletion request for user {deletion_request['username']} registered with {deletion_request['email']} failed for technical reasons. Please contact the unit for technical support!",
             )
 
     else:

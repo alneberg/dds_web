@@ -242,11 +242,16 @@ class DeleteUserSchema(marshmallow.Schema):
             # associated user is identical with the requester
             associated_user = auth.current_user()
 
+        # Get the public IDs of the projects a user in involved in:
+        proj_id = []
+        for proj in associated_user.projects:
+            proj_id.append(proj.public_id)
+
         deletion_request = {
             "username": associated_user.username,
-            "email": associated_user.email,
+            "email": associated_user.primary_email,
             "role": associated_user.role,
-            "projects": associated_user.projects,
+            "projects": proj_id,
             "ownaccount": data.get("ownaccount"),
             "requestername": auth.current_user().username,
             "requesterrole": auth.current_user().role,

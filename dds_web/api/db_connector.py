@@ -297,10 +297,23 @@ class DBConnector:
 
         return exists, deleted, name_in_bucket, error
 
-    def delete_user(username):
-        # TODO
-        print("Hi")
-        pass
+    @staticmethod
+    def delete_user(deletion_request):
+
+        try:
+            pass
+            # ToDo:
+            # created_by in Projects
+            # delete rows in ProjectUsers
+            # delete rows in Identifiers
+            # delete rows in Email
+            # delete row in User
+
+            return True
+
+        except sqlalchemy.exc.SQLAlchemyError as err:
+            db.session.rollback()
+            raise DatabaseError(message=str(err))
 
     @staticmethod
     def project_usage(project_object):
