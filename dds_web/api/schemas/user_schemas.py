@@ -221,7 +221,7 @@ class DeleteUserSchema(marshmallow.Schema):
         """Verify that the email tied to an existing user account."""
 
         if value:
-            if not email_in_db(email=value):
+            if not utils.email_in_db(email=value):
                 raise marshmallow.ValidationError(
                     message=f"The email '{value}' is not associated with an Data Delivery System account."
                 )

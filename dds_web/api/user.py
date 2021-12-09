@@ -290,7 +290,7 @@ class DeleteUser(flask_restful.Resource):
     def post(self):
         """Endpoint to remove users from the system
         Every user can self-delete the own account with an e-mail confirmation.
-        Unit users can also delete other users, but should require 2FA token to do so.
+        Unit admins can delete unitusers.
         """
 
         # CLI request should read:
@@ -302,17 +302,33 @@ class DeleteUser(flask_restful.Resource):
             flask.current_app.logger.debug(deletion_request)
 
         except marshmallow.ValidationError as valerr:
-            raise ddserr.UserDeletionError(message=json.dumps(valerr.messages))
+            resultval = str(valerr.messages["email"][0])
+            """Because the e-mail validation happens before the user privileges are evaluated,
+            this function could be misused to determine which e-mail addresses are registered at the system.
+            On the other hand Unit Admins should be allowed to see if they misspelled the e-mail address, so
+            always failing silently is also not an option.  
+            """
+            if auth.current_user().role in ["Unit Admin", "Super Admin"]:
+                raise ddserr.UserDeletionError(message=resultval)
+            else:
+                raise ddserr.UserDeletionError(
+                    message=resultval,
+                    alt_message=f"As a {auth.current_user().role} you are not allowed to request deletion of users",
+                )
 
         if deletion_request["ownaccount"]:
-            self.delete_request_self(deletion_request=deletion_request)
+
+            response = self.delete_request_self(deletion_request=deletion_request)
+
         else:
             try:
-                self.remove_user(deletion_request=deletion_request)
+                response = self.remove_user(deletion_request=deletion_request)
             except ddserr.AuthenticationError:
                 raise ddserr.UserDeletionError(
-                    message=f"As a {deletion_request['requesterrole']} you are not allowed to request deletion of {deletion_request['username']}"
+                    message=f"As a {deletion_request['requesterrole']} you are not allowed to request deletion of users"
                 )
+
+        return flask.make_response(flask.jsonify(response))
 
     @auth.login_required
     def delete_request_self(self, deletion_request):
@@ -322,10 +338,32 @@ class DeleteUser(flask_restful.Resource):
         s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config["SECRET_KEY"])
         token = s.dumps(deletion_request["email"], salt="email-delete")
 
+        # Create deletion request in database unless it already exists
+        try:
+            if not dds_web.utils.delrequest_exists(deletion_request["email"]):
+                new_delrequest = models.DeletionRequest(**{"email": deletion_request["email"]})
+                db.session.add(new_delrequest)
+                db.session.commit()
+            else:
+                return {
+                    "message": f"The confirmation link has already been sent to your address {deletion_request['email']}!",
+                    "status": 200,
+                }
+
+        except sqlalchemy.exc.SQLAlchemyError as sqlerr:
+            db.session.rollback()
+            raise ddserr.UserDeletionError(
+                message=f"Your deletion request failed due to database error: {sqlerr}"
+            )
+
         # Create link for deletion request email
         link = flask.url_for("auth_blueprint.confirm_self_deletion", token=token, _external=True)
         subject = f"Confirm deletion of your user account {deletion_request['requestername']} in the SciLifeLab Data Delivery System"
         projectnames = "; ".join(deletion_request["projects"])
+
+        flask.current_app.logger.debug(
+            f"Self-Deletion link for {deletion_request['requestername']}:" + link
+        )
 
         msg = flask_mail.Message(
             subject,
@@ -361,16 +399,14 @@ class DeleteUser(flask_restful.Resource):
 
         mail.send(msg)
 
-        flask.current_app.logger.info(
+        flask.current_app.logger.debug(
             f"The user account {deletion_request['username']} / {deletion_request['email']} ({deletion_request['role']}) has requested self-deletion."
         )
 
-        return flask.jsonify(
-            {
-                "message": f"Requested account deletion initiated. An e-mail with a confirmation link has been sent to your address {deletion_request['email']}!",
-                "status": 200,
-            }
-        )
+        return {
+            "message": f"Requested account deletion initiated. An e-mail with a confirmation link has been sent to your address {deletion_request['email']}!",
+            "status": 200,
+        }
 
     @auth.login_required(role=["Super Admin", "Unit Admin"])
     def remove_user(self, deletion_request):
@@ -381,27 +417,25 @@ class DeleteUser(flask_restful.Resource):
         ):
 
             raise ddserr.UserDeletionError(
-                message=f"Research users can't be deleted by unit administrators. Deletion for {deletion_request['username']} failed."
+                message=f"Research users can't be deleted by unit administrators. Deletion for {deletion_request['email']} failed."
             )
 
         try:
 
             DBConnector().delete_user(deletion_request)
 
-            flask.current_app.logger.info(
+            flask.current_app.logger.debug(
                 f"The user account {deletion_request['username']} / {deletion_request['email']} ({deletion_request['role']})  has successfully been terminated by {deletion_request['requestername']} ({deletion_request['requesterrole']})"
             )
 
-            return flask.jsonify(
-                {
-                    "message": f"The user account {deletion_request['username']} / {deletion_request['email']} ({deletion_request['role']})  has successfully been terminated by {deletion_request['requestername']} ({deletion_request['requesterrole']})",
-                    "status": 200,
-                }
-            )
+            return {
+                "message": f"The user account {deletion_request['username']} / {deletion_request['email']} ({deletion_request['role']})  has successfully been terminated by {deletion_request['requestername']} ({deletion_request['requesterrole']})",
+                "status": 200,
+            }
 
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
-                message=f"User deletion request for {deletion_request['username']} / {deletion_request['email']} failed due to database error: {sqlerr}"
+                message=f"User deletion request for {deletion_request['email']} failed due to database error: {sqlerr}"
             )
 
 

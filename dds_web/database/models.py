@@ -131,7 +131,6 @@ class Unit(db.Model):
     users = db.relationship("UnitUser", back_populates="unit", passive_deletes=True)
     projects = db.relationship("Project", back_populates="responsible_unit", passive_deletes=True)
     invites = db.relationship("Invite", back_populates="unit", passive_deletes=True)
-    deletions = db.relationship("DeletionRequest", back_populates="unit", passive_deletes=True)
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -615,11 +614,6 @@ class DeletionRequest(db.Model):
 
     # Primary Key
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-
-    # Foreign keys & relationships
-    unit_id = db.Column(db.Integer, db.ForeignKey("units.id", ondelete="CASCADE"))
-    unit = db.relationship("Unit", back_populates="deletions")
-
     # Columns
     email = db.Column(db.String(254), unique=True, nullable=False)
 
