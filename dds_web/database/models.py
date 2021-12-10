@@ -272,6 +272,11 @@ class User(flask_login.UserMixin, db.Model):
     identifiers = db.relationship("Identifier", back_populates="user", passive_deletes=True)
     emails = db.relationship("Email", back_populates="user", passive_deletes=True)
     created_projects = db.relationship("Project", back_populates="creator", passive_deletes=True)
+    # Delete requests if User is deleted:
+    # User has requested self-deletion but is deleted by Admin before confirmation by the e-mail link.
+    deletion_request = db.relationship(
+        "DeletionRequest", back_populates="requester", cascade="all, delete"
+    )
 
     __mapper_args__ = {"polymorphic_on": type}  # No polymorphic identity --> no create only user
 
@@ -560,6 +565,10 @@ class Email(db.Model):
         db.String(50), db.ForeignKey("users.username", ondelete="CASCADE"), nullable=False
     )
     user = db.relationship("User", back_populates="emails")
+    # Delete pending requests if e-mail is deleted:
+    deletion_request = db.relationship(
+        "DeletionRequest", back_populates="email", cascade="all, delete"
+    )
     # ---
 
     # Additional columns
@@ -614,8 +623,11 @@ class DeletionRequest(db.Model):
 
     # Primary Key
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    # Columns
-    email = db.Column(db.String(254), unique=True, nullable=False)
+    requester_id = db.Column(db.String(50), db.ForeignKey("users.username"))
+    requester = db.relationship("User", back_populates="deletion_request")
+    email_id = db.Column(db.Integer, db.ForeignKey("emails.id"))
+    email = db.relationship("Email", back_populates="deletion_request")
+    issued = db.Column(db.DateTime(), unique=False, nullable=False)
 
     def __repr__(self):
         """Called by print, creates representation of object"""

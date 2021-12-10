@@ -6,6 +6,7 @@
 
 # Standard Library
 import io
+import json
 
 # Installed
 import flask
@@ -289,6 +290,7 @@ def confirm_self_deletion(token):
     try:
         # Get email from token
         email = s.loads(token, salt="email-delete", max_age=604800)
+        flask.current_app.logger.debug(email)
 
         # Get row from deletion requests table
         deletion_request_row = models.DeletionRequest.query.filter(
@@ -305,31 +307,32 @@ def confirm_self_deletion(token):
         )
     except (itsdangerous.exc.BadSignature, itsdangerous.exc.BadTimeSignature):
         raise ddserr.UserDeletionError(
-            message=f"Confirmation link has expired. No action has been performed."
+            message=f"Confirmation link is invalid. No action has been performed."
         )
     except sqlalchemy.exc.SQLAlchemyError as sqlerr:
         raise ddserr.DatabaseError(message=sqlerr)
 
     # Check if the user and the deletion request exists
-    if deletion_request_row and user_schemas.email_in_db(email=email):
+    if deletion_request_row and dds_web.utils.email_in_db(email=email):
 
         try:
-
+            print()
             deletion_request = user_schemas.DeleteUserSchema().load(
                 {"email": email, "ownaccount": True}
             )
             flask.current_app.logger.debug(deletion_request)
-            DBConnector.delete_user(deletion_request)
+            dbaction = DBConnector.delete_user(deletion_request)
 
-            logging.getLogger("actions").info(
-                f"The user {deletion_request['username']} ({deletion_request['email']}) has successfully terminated its account at the DDS."
-            )
+            if dbaction:
+                # remove the deletion request from the database
+                db.session.delete(deletion_request_row)
+                db.session.commit()
 
-            return flask.make_response(
-                flask.render_template(
-                    "user/userdeleted.html", username=deletion_request["username"]
+                return flask.make_response(
+                    flask.render_template(
+                        "user/userdeleted.html", username=deletion_request["username"], initial=True
+                    )
                 )
-            )
 
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
@@ -338,9 +341,6 @@ def confirm_self_deletion(token):
             )
 
     else:
-        logging.getLogger("actions").warning(
-            f"A valid deletion request link for {email} has been used without being issued by the system!"
-        )
-        raise ddserr.UserDeletionError(
-            message=f"Confirmation link is invalid. No action has been performed."
+        return flask.make_response(
+            flask.render_template("user/userdeleted.html", username=email, initial=False)
         )

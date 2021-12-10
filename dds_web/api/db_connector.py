@@ -300,14 +300,23 @@ class DBConnector:
     @staticmethod
     def delete_user(deletion_request):
 
+        deletion_request["email"]
+        deletion_request["username"]
+
         try:
-            pass
-            # ToDo:
-            # created_by in Projects
+
+            # delete the User row
+            db.session.delete(models.User.query.get(deletion_request["username"]))
+            db.session.commit()
+
+            # created_by in Projects: set to Null
+            # rows_projects = models.Project.query.filter(models.Project.created_by == sqlalchemy.func.binary(deletion_request['username']))
+
+            # update({"created_by": None})
             # delete rows in ProjectUsers
             # delete rows in Identifiers
+
             # delete rows in Email
-            # delete row in User
 
             return True
 

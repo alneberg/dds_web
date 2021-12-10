@@ -216,6 +216,19 @@ class DeleteUserSchema(marshmallow.Schema):
     class Meta:
         unknown = marshmallow.EXCLUDE
 
+    @marshmallow.pre_load
+    def auth_check(self, data, **kwargs):
+        """Check already that the user has the right permissions"""
+
+        if auth.current_user():  # when clicking the confirmation link might not be given
+            if not data.get("ownaccount") and auth.current_user().role not in [
+                "Unit Admin",
+                "Super Admin",
+            ]:
+                raise ddserr.AccessDeniedError()
+
+        return data
+
     @marshmallow.validates("email")
     def verify_email_in_system(self, value):
         """Verify that the email tied to an existing user account."""
@@ -230,17 +243,23 @@ class DeleteUserSchema(marshmallow.Schema):
     def return_request(self, data, **kwargs):
         """Return the extended deletion request."""
 
-        if data.get("email") and not data.get("ownaccount"):
+        # Possible cases:
+        # Email was specified, ownaccount FALSE -> foreign deletion request
+        # Email was not specified + ownaccount TRUE -> self request step 1
+        # Email was specified + ownaccount TRUE -> self request step 2 (has no auth.current_user !)
+
+        if data.get("email"):
             try:
-                # associated user is not the requester
+                # associated user is not the requester or step 2 of self-deletion
                 associated_user = models.Email.query.filter_by(email=data.get("email")).first()
                 associated_user = associated_user.user
             except sqlalchemy.exc.SQLAlchemyError as sqlerr:
                 raise ddserr.DatabaseError(sqlerr)
-
-        else:
+        elif data.get("ownaccount"):
             # associated user is identical with the requester
             associated_user = auth.current_user()
+        else:  # ownaccount False and no e-mail specified
+            raise ddserr.AccessDeniedError()
 
         # Get the public IDs of the projects a user in involved in:
         proj_id = []
@@ -252,9 +271,18 @@ class DeleteUserSchema(marshmallow.Schema):
             "email": associated_user.primary_email,
             "role": associated_user.role,
             "projects": proj_id,
+            "type": associated_user.type,
             "ownaccount": data.get("ownaccount"),
-            "requestername": auth.current_user().username,
-            "requesterrole": auth.current_user().role,
         }
+
+        if deletion_request["type"] == "unituser":
+            deletion_request["unit"] = associated_user.unit
+
+        if auth.current_user():
+            deletion_request["requestername"] = auth.current_user().username
+            deletion_request["requesterrole"] = auth.current_user().role
+            deletion_request["requestertype"] = auth.current_user().type
+            if deletion_request["requestertype"] == "unituser":
+                deletion_request["requesterunit"] = auth.current_user().unit
 
         return deletion_request
