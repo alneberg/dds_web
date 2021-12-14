@@ -195,11 +195,9 @@ def username_in_db(username):
 
 def delrequest_exists(email):
     """Check if there is already a deletion request for that email."""
-    exists = db.session.query(
-        db.session.query(models.DeletionRequest).filter_by(email=email).exists()
-    ).scalar()
-
-    return exists
+    if models.DeletionRequest.query.filter_by(email=email).first():
+        return True
+    return False
 
 
 def send_reset_email(email_row):

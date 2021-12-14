@@ -283,6 +283,7 @@ def reset_password(token):
 
 
 @auth_blueprint.route("/confirm_deletion/<token>", methods=["GET"])
+@flask_login.login_required
 def confirm_self_deletion(token):
     """Confirm user deletion."""
     s = itsdangerous.URLSafeTimedSerializer(flask.current_app.config.get("SECRET_KEY"))
@@ -290,7 +291,14 @@ def confirm_self_deletion(token):
     try:
         # Get email from token
         email = s.loads(token, salt="email-delete", max_age=604800)
-        flask.current_app.logger.debug(email)
+
+        # Check that the email is registered on the current user:
+        if email not in [email.email for email in flask_login.current_user.emails]:
+            msg = f"The email for user to be deleted is not registered on your account."
+            flask.current_app.logger.warning(
+                f"{msg} email: {email}: user: {flask_login.current_user}"
+            )
+            raise ddserr.UserDeletionError(message=msg)
 
         # Get row from deletion requests table
         deletion_request_row = models.DeletionRequest.query.filter(
@@ -313,33 +321,26 @@ def confirm_self_deletion(token):
         raise ddserr.DatabaseError(message=sqlerr)
 
     # Check if the user and the deletion request exists
-    if deletion_request_row and dds_web.utils.email_in_db(email=email):
-
+    if deletion_request_row:
         try:
-            print()
-            deletion_request = user_schemas.DeleteUserSchema().load(
-                {"email": email, "ownaccount": True}
-            )
-            flask.current_app.logger.debug(deletion_request)
-            dbaction = DBConnector.delete_user(deletion_request)
+            user = user_schemas.UserSchema().load({"email": email})
+            DBConnector.delete_user(user)
 
-            if dbaction:
-                # remove the deletion request from the database
-                db.session.delete(deletion_request_row)
-                db.session.commit()
-
-                return flask.make_response(
-                    flask.render_template(
-                        "user/userdeleted.html", username=deletion_request["username"], initial=True
-                    )
-                )
+            # remove the deletion request from the database
+            db.session.delete(deletion_request_row)
+            db.session.commit()
 
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.UserDeletionError(
-                message=f"User deletion request for {deletion_request['username']} / {deletion_request['email']} failed due to database error: {sqlerr}",
-                alt_message=f"Deletion request for user {deletion_request['username']} registered with {deletion_request['email']} failed for technical reasons. Please contact the unit for technical support!",
+                message=f"User deletion request for {user.username} / {user.primary_email.email} failed due to database error: {sqlerr}",
+                alt_message=f"Deletion request for user {user.username} registered with {user.primary_email.email} failed for technical reasons. Please contact the unit for technical support!",
             )
 
+        return flask.make_response(
+            flask.render_template(
+                "user/userdeleted.html", username=deletion_request["username"], initial=True
+            )
+        )
     else:
         return flask.make_response(
             flask.render_template("user/userdeleted.html", username=email, initial=False)

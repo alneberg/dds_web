@@ -298,28 +298,12 @@ class DBConnector:
         return exists, deleted, name_in_bucket, error
 
     @staticmethod
-    def delete_user(deletion_request):
-
-        deletion_request["email"]
-        deletion_request["username"]
+    def delete_user(user):
 
         try:
-
-            # delete the User row
-            db.session.delete(models.User.query.get(deletion_request["username"]))
+            parent_user = models.User.query.filter(models.User.username == user.username).first()
+            db.session.delete(parent_user)
             db.session.commit()
-
-            # created_by in Projects: set to Null
-            # rows_projects = models.Project.query.filter(models.Project.created_by == sqlalchemy.func.binary(deletion_request['username']))
-
-            # update({"created_by": None})
-            # delete rows in ProjectUsers
-            # delete rows in Identifiers
-
-            # delete rows in Email
-
-            return True
-
         except sqlalchemy.exc.SQLAlchemyError as err:
             db.session.rollback()
             raise DatabaseError(message=str(err))
