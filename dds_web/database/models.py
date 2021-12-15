@@ -274,9 +274,7 @@ class User(flask_login.UserMixin, db.Model):
     created_projects = db.relationship("Project", back_populates="creator", passive_deletes=True)
     # Delete requests if User is deleted:
     # User has requested self-deletion but is deleted by Admin before confirmation by the e-mail link.
-    deletion_request = db.relationship(
-        "DeletionRequest", back_populates="requester", cascade="all, delete"
-    )
+    deletion_request = db.relationship("DeletionRequest", back_populates="requester")
 
     __mapper_args__ = {"polymorphic_on": type}  # No polymorphic identity --> no create only user
 
