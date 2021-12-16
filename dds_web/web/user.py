@@ -134,6 +134,11 @@ def login():
             return flask.redirect(flask.url_for("auth_blueprint.index"))
         return flask.redirect(flask.url_for("auth_blueprint.two_factor_setup"))
 
+    next = flask.request.args.get("next")
+    # is_safe_url should check if the url is safe for redirects.
+    if not dds_web.utils.is_safe_url(next):
+        return flask.abort(400)
+
     # Check if for is filled in and correctly (post)
     form = forms.LoginForm()
     if form.validate_on_submit():
@@ -143,22 +148,19 @@ def login():
         # Unsuccessful login
         if not user or not user.verify_password(input_password=form.password.data):
             flask.flash("Invalid username or password.")
-            return flask.redirect(flask.url_for("auth_blueprint.login"))  # Try login again
+            return flask.redirect(
+                flask.url_for("auth_blueprint.login", next=next)
+            )  # Try login again
 
         # Correct username and password --> log user in
         flask_login.login_user(user)
         flask.flash("Logged in successfully.")
 
-        next = flask.request.args.get("next")
-        # is_safe_url should check if the url is safe for redirects.
-        if not dds_web.utils.is_safe_url(next):
-            return flask.abort(400)
-
         # Go to home page
         return flask.redirect(next or flask.url_for("auth_blueprint.index"))
 
     # Go to login form (get)
-    return flask.render_template("user/login.html", form=form)
+    return flask.render_template("user/login.html", form=form, next=next)
 
 
 @auth_blueprint.route("/logout", methods=["POST"])
