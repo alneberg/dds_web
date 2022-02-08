@@ -211,7 +211,7 @@ def demo_data():
     return (units, users, projects, invites, files_and_versions)
 
 
-def add_data_to_db():
+def add_data_to_db(client):
     units, users, projects, invites, files_and_versions = demo_data()
     for project in projects:
         project.project_statuses.append(
@@ -310,8 +310,31 @@ def add_data_to_db():
     for user in users:
         user.active = True
 
+    db.session.add_all(units)
+    db.session.add_all(users)
+
+    db.session.commit()
+
+    generate_project_key_pair(users[2], units[0].projects[0])
+    generate_project_key_pair(users[2], units[0].projects[2])
+    generate_project_key_pair(users[2], units[0].projects[4])
+
+    generate_project_key_pair(users[3], units[0].projects[1])
+    generate_project_key_pair(users[3], units[0].projects[3])
+
+    db.session.commit()
+
+    share_project_private_key_with_user(users[2], users[0], units[0].projects[0])
+    share_project_private_key_with_user(users[2], users[1], units[0].projects[0])
+    share_project_private_key_with_user(users[3], users[6], units[0].projects[3])
+
+    db.session.commit()
+
     return units, users
 
+
+def fixture_contents():
+    
 
 @pytest.fixture(scope="function")
 def client():
@@ -324,26 +347,7 @@ def client():
 
             db.create_all()
 
-            units, users = add_data_to_db()
-            db.session.add_all(units)
-            db.session.add_all(users)
-
-            db.session.commit()
-
-            generate_project_key_pair(users[2], units[0].projects[0])
-            generate_project_key_pair(users[2], units[0].projects[2])
-            generate_project_key_pair(users[2], units[0].projects[4])
-
-            generate_project_key_pair(users[3], units[0].projects[1])
-            generate_project_key_pair(users[3], units[0].projects[3])
-
-            db.session.commit()
-
-            share_project_private_key_with_user(users[2], users[0], units[0].projects[0])
-            share_project_private_key_with_user(users[2], users[1], units[0].projects[0])
-            share_project_private_key_with_user(users[3], users[6], units[0].projects[3])
-
-            db.session.commit()
+            units, users = add_data_to_db(client)
 
             try:
                 yield client
@@ -367,26 +371,7 @@ def module_client():
 
             db.create_all()
 
-            units, users = add_data_to_db()
-            db.session.add_all(units)
-            db.session.add_all(users)
-
-            db.session.commit()
-
-            generate_project_key_pair(users[2], units[0].projects[0])
-            generate_project_key_pair(users[2], units[0].projects[2])
-            generate_project_key_pair(users[2], units[0].projects[4])
-
-            generate_project_key_pair(users[3], units[0].projects[1])
-            generate_project_key_pair(users[3], units[0].projects[3])
-
-            db.session.commit()
-
-            share_project_private_key_with_user(users[2], users[0], units[0].projects[0])
-            share_project_private_key_with_user(users[2], users[1], units[0].projects[0])
-            share_project_private_key_with_user(users[3], users[6], units[0].projects[3])
-
-            db.session.commit()
+            units, users = add_data_to_db(client)
 
             try:
                 yield client
