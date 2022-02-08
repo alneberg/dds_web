@@ -36,6 +36,38 @@ import dds_web.utils
 # Association objects ######################################################## Association objects #
 
 
+class ProjectInviteKeys(db.Model):
+    """
+    Many-to-many association table between projects and invites.
+
+    Primary key(s):
+    - project_id
+    - invite_id
+
+    Foreign key(s):
+    - project_id
+    - invite_id
+    """
+
+    # Table setup
+    __tablename__ = "projectinvitekeys"
+
+    # Foreign keys & relationships
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    project = db.relationship("Project", back_populates="project_invite_keys")
+    # ---
+    invite_id = db.Column(
+        db.Integer, db.ForeignKey("invites.id", ondelete="CASCADE"), primary_key=True
+    )
+    invite = db.relationship("Invite", back_populates="project_invite_keys")
+    # ---
+
+    # Additional columns
+    key = db.Column(db.LargeBinary(300), nullable=False, unique=True)
+
+
 class ProjectUserKeys(db.Model):
     """
     Many-to-many association table between projects and users (all).
@@ -232,6 +264,9 @@ class Project(db.Model):
     )
     project_user_keys = db.relationship(
         "ProjectUserKeys", back_populates="project", passive_deletes=True
+    )
+    project_invite_keys = db.relationship(
+        "ProjectInviteKeys", back_populates="project", passive_deletes=True
     )
 
     @property
@@ -689,6 +724,10 @@ class Invite(db.Model):
     temporary_key = db.Column(db.LargeBinary(32), default=None)  # TODO remove this
     public_key = db.Column(db.LargeBinary(300), default=None)
     encrypted_private_key = db.Column(db.LargeBinary(300), default=None)
+
+    project_invite_keys = db.relationship(
+        "ProjectInviteKeys", back_populates="invite", passive_deletes=True
+    )
 
     def __init__(self, **kwargs):
         if not self.public_key or not self.private_key:

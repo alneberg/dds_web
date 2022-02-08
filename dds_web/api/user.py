@@ -81,7 +81,6 @@ class AddUser(flask_restful.Resource):
                 "message": invite_err.description,
                 "status": ddserr.InviteError.code.value,
             }
-
         except sqlalchemy.exc.SQLAlchemyError as sqlerr:
             raise ddserr.DatabaseError(message=str(sqlerr))
         except marshmallow.ValidationError as valerr:
