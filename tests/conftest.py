@@ -333,9 +333,6 @@ def add_data_to_db(client):
     return units, users
 
 
-def fixture_contents():
-    
-
 @pytest.fixture(scope="function")
 def client():
     # Create database specific for tests
