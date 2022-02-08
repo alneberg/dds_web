@@ -730,10 +730,13 @@ class Invite(db.Model):
     )
 
     def __init__(self, **kwargs):
+        super(Invite, self).__init__(**kwargs)
+
         if not self.public_key or not self.private_key:
             key_pair = generate_user_key_pair(self)
             self.public_key = key_pair["public_key"]
             self.encrypted_private_key = key_pair["encrypted_private_key"]
+            self.kd_salt = os.urandom(32)
 
     def __repr__(self):
         """Called by print, creates representation of object"""
