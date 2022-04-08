@@ -973,10 +973,11 @@ class SecondFactor(flask_restful.Resource):
     @auth.login_required
     @handle_validation_errors
     def get(self):
+        from marshmallow import ValidationError
 
         try:
             token_schemas.TokenSchema().load(flask.request.json)
-        except marshmallow.ValidationError as err:
+        except ValidationError as err:
             raise ddserr.AuthenticationError(message=err.messages)
 
         token_claims = dds_web.security.auth.obtain_current_encrypted_token_claims()
