@@ -1,0 +1,23 @@
+// Override bootstrap styles
+.form-floating > label {
+  opacity: 0.65;
+}
+
+// Links with no colour highlighting
+.link-body {
+  color: $body-color;
+}
+
+// The default flask flash message category is "message"
+// This seems difficult to change, so we just make .alert-message
+.alert-message {
+  @extend .alert-info;
+}
+
+.footer img {
+  opacity: 0.75;
+  transition: opacity 0.2s ease-in-out;
+  &:hover {
+    opacity: 1;
+  }
+}

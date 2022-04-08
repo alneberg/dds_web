@@ -6,21 +6,26 @@
 
 # Standard library
 import datetime
-import base64
 import os
+import time
 
 # Installed
-from sqlalchemy.ext import hybrid
 import sqlalchemy
 import flask
 import argon2
-import pyotp
 import flask_login
 import pathlib
-from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from cryptography.hazmat.primitives.twofactor import (
+    hotp as twofactor_hotp,
+    totp as twofactor_totp,
+    InvalidToken as twofactor_InvalidToken,
+)
+from cryptography.hazmat.primitives import hashes
 
 # Own modules
-from dds_web import db
+from dds_web import db, auth
+from dds_web.errors import AuthenticationError
+from dds_web.security.project_user_keys import generate_user_key_pair
 import dds_web.utils
 
 
@@ -30,6 +35,71 @@ import dds_web.utils
 
 ####################################################################################################
 # Association objects ######################################################## Association objects #
+
+
+class ProjectUserKeys(db.Model):
+    """
+    Many-to-many association table between projects and users (all).
+
+    Primary key(s):
+    - project_id
+    - user_id
+
+    Foreign key(s):
+    - project_id
+    - user_id
+    """
+
+    # Table setup
+    __tablename__ = "projectuserkeys"
+
+    # Foreign keys & relationships
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    project = db.relationship("Project", back_populates="project_user_keys")
+    # ---
+    user_id = db.Column(
+        db.String(50), db.ForeignKey("users.username", ondelete="CASCADE"), primary_key=True
+    )
+    user = db.relationship("User", back_populates="project_user_keys")
+    # ---
+
+    # Additional columns
+    key = db.Column(db.LargeBinary(300), nullable=False, unique=True)
+
+
+class ProjectInviteKeys(db.Model):
+    """
+    Many-to-many association table between projects and invites.
+
+    Primary key(s):
+    - project_id
+    - invite_id
+
+    Foreign key(s):
+    - project_id
+    - invite_id
+    """
+
+    # Table setup
+    __tablename__ = "projectinvitekeys"
+
+    # Foreign keys & relationships
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    project = db.relationship("Project", back_populates="project_invite_keys")
+    # ---
+    invite_id = db.Column(
+        db.Integer, db.ForeignKey("invites.id", ondelete="CASCADE"), primary_key=True
+    )
+    invite = db.relationship("Invite", back_populates="project_invite_keys")
+    # ---
+
+    # Additional columns
+    key = db.Column(db.LargeBinary(300), nullable=False, unique=True)
+    owner = db.Column(db.Boolean, nullable=False, default=False, unique=False)
 
 
 class ProjectUsers(db.Model):
@@ -129,9 +199,11 @@ class Unit(db.Model):
     days_in_expired = db.Column(db.Integer, unique=False, nullable=False, default=30)
 
     # Relationships
-    users = db.relationship("UnitUser", back_populates="unit", passive_deletes=True)
-    projects = db.relationship("Project", back_populates="responsible_unit", passive_deletes=True)
-    invites = db.relationship("Invite", back_populates="unit", passive_deletes=True)
+    users = db.relationship("UnitUser", back_populates="unit")
+    projects = db.relationship("Project", back_populates="responsible_unit")
+    invites = db.relationship(
+        "Invite", back_populates="unit", passive_deletes=True, cascade="all, delete"
+    )
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -167,29 +239,37 @@ class Project(db.Model):
     description = db.Column(db.Text)
     pi = db.Column(db.String(255), unique=False, nullable=True)
     bucket = db.Column(db.String(255), unique=True, nullable=False)
-    public_key = db.Column(db.String(64), nullable=True)
-    private_key = db.Column(db.String(255), nullable=True)
-    privkey_salt = db.Column(db.String(32), nullable=True)
-    privkey_nonce = db.Column(db.String(24), nullable=True)
-    is_sensitive = db.Column(db.Boolean, unique=False, nullable=True, default=False)
+    public_key = db.Column(db.LargeBinary(100), nullable=True)
+
+    non_sensitive = db.Column(db.Boolean, unique=False, default=False, nullable=False)
     released = db.Column(db.DateTime(), nullable=True)
     is_active = db.Column(db.Boolean, unique=False, nullable=False, default=True, index=True)
 
     # Foreign keys & relationships
-    unit_id = db.Column(db.Integer, db.ForeignKey("units.id", ondelete="CASCADE"), nullable=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("units.id", ondelete="RESTRICT"), nullable=True)
     responsible_unit = db.relationship("Unit", back_populates="projects")
     # ---
     created_by = db.Column(db.String(50), db.ForeignKey("users.username", ondelete="SET NULL"))
-    creator = db.relationship("User", back_populates="created_projects")
+    creator = db.relationship("User", backref="created_projects", foreign_keys=[created_by])
+    last_updated_by = db.Column(db.String(50), db.ForeignKey("users.username", ondelete="SET NULL"))
+    updator = db.relationship("User", backref="updated_projects", foreign_keys=[last_updated_by])
     # ---
 
     # Additional relationships
-    files = db.relationship("File", back_populates="project", passive_deletes=True)
-    file_versions = db.relationship("Version", back_populates="project", passive_deletes=True)
+    files = db.relationship("File", back_populates="project")
+    file_versions = db.relationship("Version", back_populates="project")
     project_statuses = db.relationship(
-        "ProjectStatuses", back_populates="project", passive_deletes=True
+        "ProjectStatuses", back_populates="project", passive_deletes=True, cascade="all, delete"
     )
-    researchusers = db.relationship("ProjectUsers", back_populates="project", passive_deletes=True)
+    researchusers = db.relationship(
+        "ProjectUsers", back_populates="project", passive_deletes=True, cascade="all, delete"
+    )
+    project_user_keys = db.relationship(
+        "ProjectUserKeys", back_populates="project", passive_deletes=True
+    )
+    project_invite_keys = db.relationship(
+        "ProjectInviteKeys", back_populates="project", passive_deletes=True
+    )
 
     @property
     def current_status(self):
@@ -241,10 +321,23 @@ class Project(db.Model):
 
         return len(self.files)
 
+    def __str__(self):
+        """Called by str(), creates representation of object"""
+
+        return f"Project {self.public_id}"
+
     def __repr__(self):
         """Called by print, creates representation of object"""
 
         return f"<Project {self.public_id}>"
+
+
+@sqlalchemy.event.listens_for(Project, "before_update")
+def add_before_project_update(mapper, connection, target):
+    """Listen for the 'before_update' event on Project and update certain of its fields"""
+    if auth.current_user():
+        target.date_updated = dds_web.utils.current_time()
+        target.last_updated_by = auth.current_user().username
 
 
 # Users #################################################################################### Users #
@@ -266,28 +359,49 @@ class User(flask_login.UserMixin, db.Model):
     username = db.Column(db.String(50), primary_key=True, autoincrement=False)
     name = db.Column(db.String(255), unique=False, nullable=True)
     _password_hash = db.Column(db.String(98), unique=False, nullable=False)
-    _otp_secret = db.Column(db.String(32))
-    has_2fa = db.Column(db.Boolean)
+    # 2fa columns
+    hotp_secret = db.Column(db.LargeBinary(20), unique=False, nullable=False)
+    hotp_counter = db.Column(db.BigInteger, unique=False, nullable=False, default=0)
+    hotp_issue_time = db.Column(db.DateTime, unique=False, nullable=True)
+    totp_enabled = db.Column(db.Boolean, unique=False, nullable=False, default=False)
+    _totp_secret = db.Column(db.LargeBinary(64), unique=False, nullable=True)
+    totp_last_verified = db.Column(db.DateTime, unique=False, nullable=True)
+    
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    
+    kd_salt = db.Column(db.LargeBinary(32), default=None)
+    nonce = db.Column(db.LargeBinary(12), default=None)
+    public_key = db.Column(db.LargeBinary(300), default=None)
+    private_key = db.Column(db.LargeBinary(300), default=None)
 
     # Inheritance related, set automatically
     type = db.Column(db.String(20), unique=False, nullable=False)
 
     # Relationships
-    identifiers = db.relationship("Identifier", back_populates="user", passive_deletes=True)
-    emails = db.relationship("Email", back_populates="user", passive_deletes=True, cascade="all")
-    created_projects = db.relationship("Project", back_populates="creator", passive_deletes=True)
+    identifiers = db.relationship(
+        "Identifier", back_populates="user", passive_deletes=True, cascade="all, delete"
+    )
+    emails = db.relationship(
+        "Email", back_populates="user", passive_deletes=True, cascade="all, delete"
+    )
+    project_user_keys = db.relationship(
+        "ProjectUserKeys", back_populates="user", passive_deletes=True
+    )
+
     # Delete requests if User is deleted:
     # User has requested self-deletion but is deleted by Admin before confirmation by the e-mail link.
-    deletion_request = db.relationship("DeletionRequest", back_populates="requester")
+    deletion_request = db.relationship(
+        "DeletionRequest", back_populates="requester", cascade="all, delete"
+    )
+    password_reset = db.relationship("PasswordReset", back_populates="user", cascade="all, delete")
 
     __mapper_args__ = {"polymorphic_on": type}  # No polymorphic identity --> no create only user
 
     def __init__(self, **kwargs):
-        """Init all set and update otp secret."""
+        """Init all set and update hotp_secet."""
         super(User, self).__init__(**kwargs)
-        if self.otp_secret is None:
-            self.otp_secret = self.gen_otp_secret()
-        self.has_2fa = False
+        if not self.hotp_secret:
+            self.hotp_secret = os.urandom(20)
 
     def get_id(self):
         """Get user id - in this case username. Used by flask_login."""
@@ -304,6 +418,14 @@ class User(flask_login.UserMixin, db.Model):
         """Generate the password hash and save in db."""
         pw_hasher = argon2.PasswordHasher(hash_len=32)
         self._password_hash = pw_hasher.hash(plaintext_password)
+
+        # User key pair should only be set from here if the password is lost
+        # and all the keys associated with the user should be cleaned up
+        # before setting the password.
+        # This should help the tests for setup as well.
+        if not self.public_key or not self.private_key:
+            self.kd_salt = os.urandom(32)
+            generate_user_key_pair(self, plaintext_password)
 
     def verify_password(self, input_password):
         """Verifies that the specified password matches the encoded password in the database."""
@@ -333,57 +455,129 @@ class User(flask_login.UserMixin, db.Model):
         # Password correct
         return True
 
-    def get_reset_token(self, expires_sec=3600):
-        """Generate token for resetting password."""
-        s = Serializer(flask.current_app.config["SECRET_KEY"], expires_sec)
-        return s.dumps({"user_id": self.username}).decode("utf-8")
-
-    @staticmethod
-    def verify_reset_token(token):
-        """Verify that the token is valid."""
-        s = Serializer(flask.current_app.config["SECRET_KEY"])
-        try:
-            user_id = s.loads(token)["user_id"]
-        except:
-            return None
-
-        return User.query.get(user_id)
-
     # 2FA related
-    def gen_otp_secret(self):
-        """Generate random base 32 for otp secret."""
-        return pyotp.random_base32()
+    def generate_HOTP_token(self):
+        """Generate a one-time authentication code, e.g. to be sent by email.
+
+        Counter is incremented before generating token which invalidates any previous token.
+        The time when it was issued is recorded to put an expiration time on the token.
+
+        """
+        self.hotp_counter += 1
+        self.hotp_issue_time = dds_web.utils.current_time()
+        db.session.commit()
+
+        hotp = twofactor_hotp.HOTP(self.hotp_secret, 8, hashes.SHA512())
+        return hotp.generate(self.hotp_counter)
+
+    def reset_current_HOTP(self):
+        """Make the previous HOTP as invalid by nulling issue time and increasing counter."""
+        self.hotp_issue_time = None
+        self.hotp_counter += 1
+
+    def verify_HOTP(self, token):
+        """Verify the HOTP token.
+
+        raises AuthenticationError if token is invalid or has expired (older than 1 hour).
+        If the token is valid, the counter is incremented, to prohibit re-use.
+        """
+        hotp = twofactor_hotp.HOTP(self.hotp_secret, 8, hashes.SHA512())
+        if self.hotp_issue_time is None:
+            raise AuthenticationError("No one-time authentication code currently issued.")
+        timediff = dds_web.utils.current_time() - self.hotp_issue_time
+        if timediff > datetime.timedelta(minutes=15):
+            raise AuthenticationError("One-time authentication code has expired.")
+
+        try:
+            hotp.verify(token, self.hotp_counter)
+        except twofactor_InvalidToken as exc:
+            raise AuthenticationError("Invalid one-time authentication code.") from exc
+
+        # Token verified, increment counter to prohibit re-use
+        self.hotp_counter += 1
+        # Reset the hotp_issue_time to allow a new code to be issued
+        self.hotp_issue_time = None
+        db.session.commit()
 
     @property
-    def otp_secret(self):
-        """Get OTP secret for user if the 2fa has not already been setup."""
-        if self.has_2fa:
-            return None
-        return self._otp_secret
+    def totp_initiated(self):
+        """To check if activation of TOTP has been initiated, not to be confused
+        with user.totp_enabled, that indicates if TOTP is successfully enabled for the user."""
+        return self._totp_secret is not None
 
-    @otp_secret.setter
-    def otp_secret(self, otp_secret):
-        """Set new otp secret."""
-        if not otp_secret:
-            otp_secret = self.gen_otp_secret()
-        self._otp_secret = otp_secret
+    def totp_object(self):
+        """Google Authenticator seems to only be able to handle SHA1 and 6 digit codes"""
+        if self.totp_initiated:
+            return twofactor_totp.TOTP(self._totp_secret, 6, hashes.SHA1(), 30)
+        return None
 
-    def set_2fa_seen(self):
-        """Renew the otp secret -- one should only be setup once."""
-        self.has_2fa = True
+    def setup_totp_secret(self):
+        """Generate random 160 bit as the new totp secret and return provisioning URI
+        We're using SHA1 (Google Authenticator seems to only use SHA1 and 6 digit codes)
+        so secret should be at least 160 bits
+        https://cryptography.io/en/latest/hazmat/primitives/twofactor/#cryptography.hazmat.primitives.twofactor.totp.TOTP
+        """
+        self._totp_secret = os.urandom(20)
+        db.session.commit()
 
-    def totp_uri(self):
-        """Get uri for user otp_secret if the 2fa has not already been setup."""
-        if self.has_2fa:
-            return None
-        return pyotp.totp.TOTP(self.otp_secret).provisioning_uri(
-            name=self.username, issuer_name="Data Delivery System"
+    def get_totp_secret(self):
+        """Returns the users totp provisioning URI. Can only be sent before totp has been enabled."""
+        if self.totp_enabled:
+            # Can not be fetched again after it has been enabled
+            raise AuthenticationError("TOTP secret already enabled.")
+        totp = self.totp_object()
+
+        return self._totp_secret, totp.get_provisioning_uri(
+            account_name=self.username,
+            issuer="Data Delivery System",
         )
 
-    def verify_totp(self, token):
-        """Verify the otp token."""
-        totp = pyotp.TOTP(self.otp_secret)
-        return totp.verify(token, valid_window=1)
+    def activate_totp(self):
+        """Set TOTP as the preferred means of second factor authentication.
+        Should be called after first totp token is verified
+        """
+        self.totp_enabled = True
+        db.session.commit()
+
+    def verify_TOTP(self, token):
+        """Verify the totp token. Checks the previous, current and comming time frame
+        to allow for some clock drift.
+
+        raises AuthenticationError if token is invalid, has expired or
+        if totp has been successfully verified within the last 90 seconds.
+        """
+        # can't use totp successfully more than once within 90 seconds.
+        # Time frame chosen so that no one can use the same token more than once
+        # No need to use epoch time here.
+        current_time = dds_web.utils.current_time()
+        if self.totp_last_verified is not None and (
+            current_time - self.totp_last_verified < datetime.timedelta(seconds=90)
+        ):
+            raise AuthenticationError(
+                "Authentication with TOTP needs to be at least 90 seconds apart."
+            )
+
+        # construct object
+        totp = self.totp_object()
+
+        # attempt to verify the token using epoch time
+        # Allow for clock drift of 1 frame before or after
+        verified = False
+        for t_diff in [-30, 0, 30]:
+            verification_time = time.time() + t_diff
+            try:
+                totp.verify(token, verification_time)
+                verified = True
+                break
+            except twofactor_InvalidToken:
+                pass
+
+        if not verified:
+            raise AuthenticationError("Invalid TOTP token.")
+
+        # if the token is valid, save time of last successful verification
+        self.totp_last_verified = current_time
+        db.session.commit()
 
     # Email related
     @property
@@ -391,6 +585,15 @@ class User(flask_login.UserMixin, db.Model):
         """Get users primary email."""
         prims = [x.email for x in self.emails if x.primary]
         return prims[0] if len(prims) > 0 else None
+
+    @property
+    def is_active(self):
+        return self.active
+
+    def __str__(self):
+        """Called by str(), creates representation of object"""
+
+        return f"User {self.username}"
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -419,7 +622,7 @@ class ResearchUser(User):
 
     # Relationships
     project_associations = db.relationship(
-        "ProjectUsers", back_populates="researchuser", passive_deletes=True
+        "ProjectUsers", back_populates="researchuser", passive_deletes=True, cascade="all, delete"
     )
 
     @property
@@ -600,11 +803,28 @@ class Invite(db.Model):
     # Foreign keys & relationships
     unit_id = db.Column(db.Integer, db.ForeignKey("units.id", ondelete="CASCADE"))
     unit = db.relationship("Unit", back_populates="invites")
+    project_invite_keys = db.relationship(
+        "ProjectInviteKeys", back_populates="invite", passive_deletes=True, cascade="all, delete"
+    )
     # ---
 
     # Additional columns
     email = db.Column(db.String(254), unique=True, nullable=False)
     role = db.Column(db.String(20), unique=False, nullable=False)
+    nonce = db.Column(db.LargeBinary(12), default=None)
+    public_key = db.Column(db.LargeBinary(300), default=None)
+    private_key = db.Column(db.LargeBinary(300), default=None)
+
+    @property
+    def projects(self):
+        """Return list of project items."""
+
+        return [proj.project for proj in self.project_associations]
+
+    def __str__(self):
+        """Called by str(), creates representation of object"""
+
+        return f"Pending invite for {self.email}"
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -621,7 +841,7 @@ class DeletionRequest(db.Model):
 
     # Primary Key
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    requester_id = db.Column(db.String(50), db.ForeignKey("users.username"))
+    requester_id = db.Column(db.String(50), db.ForeignKey("users.username", ondelete="CASCADE"))
     requester = db.relationship("User", back_populates="deletion_request")
     email = db.Column(db.String(254), unique=True, nullable=False)
     issued = db.Column(db.DateTime(), unique=False, nullable=False)
@@ -630,6 +850,26 @@ class DeletionRequest(db.Model):
         """Called by print, creates representation of object"""
 
         return f"<DeletionRequest {self.email}>"
+
+
+class PasswordReset(db.Model):
+    """Keep track of password resets."""
+
+    # Table setup
+    __tablename__ = "password_resets"
+    __table_args__ = {"extend_existing": True}
+
+    # Primary Key
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+
+    user_id = db.Column(db.String(50), db.ForeignKey("users.username", ondelete="CASCADE"))
+    user = db.relationship("User", back_populates="password_reset")
+
+    email = db.Column(db.String(254), unique=True, nullable=False)
+    issued = db.Column(db.DateTime(), unique=False, nullable=False)
+    changed = db.Column(db.DateTime(), unique=False, nullable=True)
+
+    valid = db.Column(db.Boolean, unique=False, nullable=False, default=True)
 
 
 class File(db.Model):
@@ -651,7 +891,9 @@ class File(db.Model):
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
 
     # Foreign keys & relationships
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
     project = db.relationship("Project", back_populates="files")
     # ---
 
@@ -666,15 +908,9 @@ class File(db.Model):
     salt = db.Column(db.String(32), unique=False, nullable=False)
     checksum = db.Column(db.String(64), unique=False, nullable=False)
     time_latest_download = db.Column(db.DateTime(), unique=False, nullable=True)
-    expires = db.Column(
-        db.DateTime(),
-        unique=False,
-        nullable=False,
-        default=dds_web.utils.current_time() + datetime.timedelta(days=30),
-    )
 
     # Additional relationships
-    versions = db.relationship("Version", back_populates="file", passive_deletes=True)
+    versions = db.relationship("Version", back_populates="file")
 
     def __repr__(self):
         """Called by print, creates representation of object"""
@@ -703,7 +939,7 @@ class Version(db.Model):
 
     # Foreign keys & relationships
     project_id = db.Column(
-        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
+        db.Integer, db.ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False
     )
     project = db.relationship("Project", back_populates="file_versions")
     # ---
@@ -725,3 +961,21 @@ class Version(db.Model):
         """Called by print, creates representation of object"""
 
         return f"<File Version {self.id}>"
+
+
+class MOTD(db.Model):
+    """
+    Data model for keeping track of MOTD (message of the day).
+
+    Primary key:
+    - message
+    """
+
+    # Table setup
+    __tablename__ = "motd"
+    __table_args__ = {"extend_existing": True}
+
+    # Columns
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    message = db.Column(db.Text, nullable=False, default=None)
+    date_created = db.Column(db.DateTime(), nullable=False, default=None)

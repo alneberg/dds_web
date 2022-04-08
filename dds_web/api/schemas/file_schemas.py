@@ -4,9 +4,6 @@
 # IMPORTS ################################################################################ IMPORTS #
 ####################################################################################################
 
-# Standard Library
-from datetime import datetime
-
 # Installed
 import marshmallow
 import sqlalchemy
@@ -25,41 +22,100 @@ class NewFileSchema(project_schemas.ProjectRequiredSchema):
     """Validates and creates a new file object."""
 
     # Length minimum 1 required, required=True accepts empty string
-    name = marshmallow.fields.String(required=True, validate=marshmallow.validate.Length(min=1))
+    name = marshmallow.fields.String(
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(min=1),
+        error_messages={
+            "required": {"message": "File name required."},
+            "null": {"message": "File name required."},
+        },
+    )
     name_in_bucket = marshmallow.fields.String(
-        required=True, validate=marshmallow.validate.Length(min=1)
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(min=1),
+        error_messages={
+            "required": {"message": "Remote file name required."},
+            "null": {"message": "Remote file name required."},
+        },
     )
-    subpath = marshmallow.fields.String(required=True, validate=marshmallow.validate.Length(min=1))
-    size = marshmallow.fields.Integer(required=True)  # Accepts BigInt
-    size_processed = marshmallow.fields.Integer(required=True)  # Accepts BigInt
-    compressed = marshmallow.fields.Boolean(required=True)  # Accepts all truthy
+    subpath = marshmallow.fields.String(
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(min=1),
+        error_messages={
+            "required": {"message": "Subpath required."},
+            "null": {"message": "Subpath required."},
+        },
+    )
+    size = marshmallow.fields.Integer(
+        required=True,
+        allow_none=False,
+        error_messages={
+            "required": {"message": "File size required."},
+            "null": {"message": "File size required."},
+        },
+    )  # Accepts BigInt
+    size_processed = marshmallow.fields.Integer(
+        required=True,
+        allow_none=False,
+        error_messages={
+            "required": {"message": "File processed size required."},
+            "null": {"message": "File processed size required."},
+        },
+    )  # Accepts BigInt
+    compressed = marshmallow.fields.Boolean(
+        required=True,
+        allow_none=False,
+        error_messages={
+            "required": {"message": "Boolean compression information required."},
+            "null": {"message": "Boolean compression information required."},
+        },
+    )  # Accepts all truthy
     public_key = marshmallow.fields.String(
-        required=True, validate=marshmallow.validate.Length(equal=64)
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(equal=64),
+        error_messages={
+            "required": {"message": "Public key for file required."},
+            "null": {"message": "Public key for file required."},
+        },
     )
-    salt = marshmallow.fields.String(required=True, validate=marshmallow.validate.Length(equal=32))
+    salt = marshmallow.fields.String(
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(equal=32),
+        error_messages={
+            "required": {"message": "File salt required."},
+            "null": {"message": "File salt required."},
+        },
+    )
     checksum = marshmallow.fields.String(
-        required=True, validate=marshmallow.validate.Length(equal=64)
+        required=True,
+        allow_none=False,
+        validate=marshmallow.validate.Length(equal=64),
+        error_messages={
+            "required": {"message": "Checksum required."},
+            "null": {"message": "Checksum required."},
+        },
     )
 
     @marshmallow.validates_schema(skip_on_field_errors=True)
     def verify_file_not_exists(self, data, **kwargs):
         """Check that the file does not match anything already in the database."""
-
         # Check that there is no such file in the database
         project = data.get("project_row")
-        try:
-            file = (
-                models.File.query.filter(
-                    sqlalchemy.and_(
-                        models.File.name == sqlalchemy.func.binary(data.get("name")),
-                        models.File.project_id == sqlalchemy.func.binary(project.id),
-                    )
+        file = (
+            models.File.query.filter(
+                sqlalchemy.and_(
+                    models.File.name == sqlalchemy.func.binary(data.get("name")),
+                    models.File.project_id == sqlalchemy.func.binary(project.id),
                 )
-                .with_entities(models.File.id)
-                .one_or_none()
             )
-        except sqlalchemy.exc.SQLAlchemyError:
-            raise
+            .with_entities(models.File.id)
+            .one_or_none()
+        )
 
         if file:
             raise FileExistsError
@@ -67,7 +123,6 @@ class NewFileSchema(project_schemas.ProjectRequiredSchema):
     @marshmallow.post_load
     def return_items(self, data, **kwargs):
         """Create file object."""
-
         new_file = models.File(
             name=data.get("name"),
             name_in_bucket=data.get("name_in_bucket"),

@@ -1,12 +1,10 @@
 import factory
-import os
 import itertools
 import random
 import flask
 
-import dds_web.database.models as models
+from dds_web.database import models
 from dds_web import db
-from dds_web.crypt import key_gen
 
 STATUSES_PER_PROJECT = 5
 FILES_PER_PROJECT = 100
@@ -22,7 +20,7 @@ class UnitFactory(factory.alchemy.SQLAlchemyModelFactory):
         sqlalchemy_session = db.session
 
     id = factory.Sequence(lambda n: n)
-    name = factory.Sequence(lambda n: "Unit {}".format(n))
+    name = factory.Sequence(lambda n: f"Unit {n}")
     public_id = factory.Faker("uuid4")
     external_display_name = "Display Name"
     contact_email = "support@example.com"
@@ -127,19 +125,6 @@ class ProjectFactory(factory.alchemy.SQLAlchemyModelFactory):
     pi = factory.Faker("name")
     bucket = factory.Faker("uuid4")
 
-    privkey_salt = factory.LazyAttribute(
-        lambda o: key_gen.ProjectKeys("Nonsense").key_dict()["privkey_salt"]
-    )
-    privkey_nonce = factory.LazyAttribute(
-        lambda o: key_gen.ProjectKeys("Nonsense").key_dict()["privkey_nonce"]
-    )
-    public_key = factory.LazyAttribute(
-        lambda o: key_gen.ProjectKeys("Nonsense").key_dict()["public_key"]
-    )
-    private_key = factory.LazyAttribute(
-        lambda o: key_gen.ProjectKeys("Nonsense").key_dict()["private_key"]
-    )
-
     @factory.post_generation
     def project_statuses(self, create, extracted, **kwargs):
         if not create:
@@ -207,7 +192,6 @@ class FilesFactory(factory.alchemy.SQLAlchemyModelFactory):
     salt = factory.Faker("pystr", min_chars=32, max_chars=32)
     checksum = factory.Faker("pystr", min_chars=64, max_chars=64)
     time_latest_download = factory.Faker("date_time")
-    expires = factory.Faker("date_time")
 
     # versions
 

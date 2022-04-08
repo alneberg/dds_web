@@ -3,7 +3,10 @@
 from base64 import b64encode
 from urllib.parse import quote_plus
 import json
-import dds_web.api.errors as ddserr
+import dds_web.errors as ddserr
+import dds_web.database
+import flask
+import flask_login
 
 # Copied from dds_cli __init__.py:
 
@@ -24,6 +27,7 @@ USER_CREDENTIALS = {
     "nouser": ":password",
     "nopassword": "username:",
     "wronguser": "scriptkiddie:password",
+    "wrongpassword": "researchuser:wrongpassword",
     "researcher": "researchuser:password",
     "researchuser": "researchuser:password",
     "researchuser2": "researchuser2:password",
@@ -59,9 +63,13 @@ class UserAuth:
     def post_headers(self):
         return {"Authorization": f"Basic {self.basic()}"}
 
-    def token(self, client):
+    def fetch_hotp(self):
+        user = dds_web.database.models.User.query.filter_by(username=self.username).first()
+        return user.generate_HOTP_token()
 
-        response = client.get(DDSEndpoint.TOKEN, auth=(self.as_tuple()))
+    def partial_token(self, client):
+        """Return a partial token that can be used to get a full token."""
+        response = client.get(DDSEndpoint.ENCRYPTED_TOKEN, auth=(self.as_tuple()))
 
         # Get response from api
         response_json = response.json
@@ -69,28 +77,43 @@ class UserAuth:
 
         if token is not None:
             return {"Authorization": f"Bearer {token}"}
+
+    def token(self, client):
+        temp_token = self.partial_token(client)
+
+        hotp_token = self.fetch_hotp()
+
+        response = client.get(
+            DDSEndpoint.SECOND_FACTOR,
+            headers=temp_token,
+            json={"HOTP": hotp_token.decode()},
+        )
+
+        response_json = response.json
+        token = response_json["token"]
+        if token is not None:
+            return {"Authorization": f"Bearer {token}"}
         else:
             raise ddserr.JwtTokenGenerationError()
 
-    def login_web(self, client):
-        return client.post(
-            "/login",
-            data=dict(
-                username=self.as_tuple()[0],
-                password=self.as_tuple()[1],
-            ),
-            follow_redirects=True,
-        )
+    @property
+    def username(self):
+        return self.as_tuple()[0]
 
-    def login_web_next(self, client, next):
-        return client.post(
-            "/login?next=" + quote_plus(next),
-            data=dict(
-                username=self.as_tuple()[0],
-                password=self.as_tuple()[1],
-            ),
-            follow_redirects=True,
-        )
+    def fake_web_login(self, client):
+        from flask import session
+
+        user = dds_web.database.models.User.query.filter_by(username=self.username).first()
+
+        def set_session_cookie(client):
+            app = flask.current_app
+            val = app.session_interface.get_signing_serializer(app).dumps(dict(session))
+            client.set_cookie("localhost", app.session_cookie_name, val)
+
+        flask_login.login_user(user)
+        set_session_cookie(client)
+
+        return client
 
 
 class DDSEndpoint:
@@ -99,19 +122,45 @@ class DDSEndpoint:
     # Base url - local or remote
     BASE_ENDPOINT = "/api/v1"
 
+    # status
+    STATUS = "/status"
+
+    # Web
+    INDEX = "/"
+    LOGIN = "/login"
+    LOGOUT = "/logout"
+    CANCEL_2FA = "/cancel_2fa"
+    CONFIRM_2FA = "/confirm_2fa"
+    CHANGE_PASSWORD = "/change_password"
+
     # User creation
     USER_ADD = BASE_ENDPOINT + "/user/add"
     USER_CONFIRM = "/confirm_invite/"
     USER_NEW = "/register"
+    REQUEST_RESET_PASSWORD = "/reset_password"
+    RESET_PASSWORD = "/reset_password/"
+    PASSWORD_RESET_COMPLETED = "/password_reset_completed"
+
+    # User INFO
+    USER_INFO = BASE_ENDPOINT + "/user/info"
 
     # User deletion
     USER_DELETE = BASE_ENDPOINT + "/user/delete"
     USER_DELETE_SELF = BASE_ENDPOINT + "/user/delete_self"
     USER_CONFIRM_DELETE = "/confirm_deletion/"
 
+    # List users
+    LIST_UNIT_USERS = BASE_ENDPOINT + "/unit/users"
+
     # Authentication - user and project
-    TOKEN = BASE_ENDPOINT + "/user/token"
     ENCRYPTED_TOKEN = BASE_ENDPOINT + "/user/encrypted_token"
+    SECOND_FACTOR = BASE_ENDPOINT + "/user/second_factor"
+
+    # Remove user from project
+    REMOVE_USER_FROM_PROJ = BASE_ENDPOINT + "/user/access/revoke"
+
+    # User activation
+    USER_ACTIVATION = BASE_ENDPOINT + "/user/activation"
 
     # S3Connector keys
     S3KEYS = BASE_ENDPOINT + "/s3/proj"
@@ -126,6 +175,7 @@ class DDSEndpoint:
     # Project specific urls
     PROJECT_CREATE = BASE_ENDPOINT + "/proj/create"
     PROJECT_STATUS = BASE_ENDPOINT + "/proj/status"
+    PROJECT_ACCESS = BASE_ENDPOINT + "/proj/access"
 
     # Listing urls
     LIST_PROJ = BASE_ENDPOINT + "/proj/list"
@@ -144,5 +194,8 @@ class DDSEndpoint:
     # Display facility usage
     USAGE = BASE_ENDPOINT + "/usage"
     INVOICE = BASE_ENDPOINT + "/invoice"
+
+    # Units
+    LIST_UNITS_ALL = BASE_ENDPOINT + "/unit/info/all"
 
     TIMEOUT = 5

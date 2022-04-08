@@ -7,27 +7,15 @@
 # Standard library
 import logging
 import traceback
-import pathlib
-import json
 
 # Installed
-import botocore
-import flask
-import sqlalchemy
 
 # Own modules
 from dds_web.api.dds_decorators import (
     connect_cloud,
     bucket_must_exists,
 )
-from dds_web.api.errors import (
-    BucketNotFoundError,
-    DatabaseError,
-    DeletionError,
-    S3ProjectNotFoundError,
-    S3InfoNotFoundError,
-    KeyNotFoundError,
-)
+
 from dds_web.database import models
 
 
@@ -64,21 +52,17 @@ class ApiS3Connector:
 
     def get_s3_info(self):
         """Get information required to connect to cloud."""
-
-        try:
-            endpoint, name, accesskey, secretkey = (
-                models.Unit.query.filter_by(id=self.project.responsible_unit.id)
-                .with_entities(
-                    models.Unit.safespring_endpoint,
-                    models.Unit.safespring_name,
-                    models.Unit.safespring_access,
-                    models.Unit.safespring_secret,
-                )
-                .one_or_none()
+        endpoint, name, accesskey, secretkey = (
+            models.Unit.query.filter_by(id=self.project.responsible_unit.id)
+            .with_entities(
+                models.Unit.safespring_endpoint,
+                models.Unit.safespring_name,
+                models.Unit.safespring_access,
+                models.Unit.safespring_secret,
             )
-            bucket = self.project.bucket
-        except sqlalchemy.exc.SQLAlchemyError as sqlerr:
-            raise DatabaseError from sqlerr
+            .one_or_none()
+        )
+        bucket = self.project.bucket
 
         return (
             name,
@@ -88,44 +72,32 @@ class ApiS3Connector:
         )
 
     @bucket_must_exists
-    def remove_all(self, *args, **kwargs):
+    def remove_bucket(self, *args, **kwargs):
         """Removes all contents from the project specific s3 bucket."""
+        # Get bucket object
+        bucket = self.resource.Bucket(self.project.bucket)
 
-        try:
-            bucket = self.resource.Bucket(self.project.bucket)
-            bucket.objects.all().delete()
-        except botocore.client.ClientError as err:
-            raise DeletionError(message=str(err), project=self.project.get("id"))
-        else:
-            return True
+        # Delete objects first
+        bucket.objects.all().delete()
+
+        # Delete bucket
+        bucket.delete()
+        bucket = None
 
     @bucket_must_exists
-    def remove_folder(self, folder, *args, **kwargs):
+    def remove_multiple(self, items, batch_size: int = 1000, *args, **kwargs):
         """Removes all with prefix."""
-
-        removed, error = (False, "")
-        try:
-            self.resource.Bucket(self.project.bucket).objects.filter(Prefix=f"{folder}/").delete()
-        except botocore.client.ClientError as err:
-            error = str(err)
-        else:
-            removed = True
-
-        return removed, error
+        # s3 can only delete 1000 objects per request
+        for i in range(0, len(items), batch_size):
+            _ = self.resource.meta.client.delete_objects(
+                Bucket=self.project.bucket,
+                Delete={"Objects": [{"Key": x} for x in items[i : i + batch_size]]},
+            )
 
     @bucket_must_exists
     def remove_one(self, file, *args, **kwargs):
         """Removes file from s3"""
-
-        removed, error = (False, "")
-        try:
-            _ = self.resource.meta.client.delete_object(Bucket=self.project.bucket, Key=file)
-        except botocore.client.ClientError as err:
-            error = str(err)
-        else:
-            removed = True
-
-        return removed, error
+        _ = self.resource.meta.client.delete_object(Bucket=self.project.bucket, Key=file)
 
     def generate_get_url(self, key):
         """Generate presigned urls for get requests."""
@@ -135,6 +107,6 @@ class ApiS3Connector:
         url = self.resource.meta.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.project.bucket, "Key": key},
-            ExpiresIn=3 * 24 * 60 * 60,
+            ExpiresIn=604800,  # 7 days in seconds
         )
         return url
